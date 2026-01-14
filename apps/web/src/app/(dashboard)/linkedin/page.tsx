@@ -33,8 +33,8 @@ import {
   Key,
 } from 'lucide-react';
 
-type LinkedInAccount = Awaited<ReturnType<typeof api.getLinkedInAccounts>>['data'][0];
-type LinkedInCampaign = Awaited<ReturnType<typeof api.getLinkedInCampaigns>>['data'][0];
+type LinkedInAccount = Awaited<ReturnType<typeof api.getLinkedInAccounts>>[0];
+type LinkedInCampaign = Awaited<ReturnType<typeof api.getLinkedInCampaigns>>[0];
 
 const STATUS_COLORS: Record<string, string> = {
   CONNECTED: 'bg-emerald-500',
