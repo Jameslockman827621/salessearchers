@@ -698,6 +698,7 @@ class ApiClient {
         website: string | null;
         industry: string | null;
         size: string | null;
+        location: string | null;
         linkedinUrl: string | null;
         logoUrl: string | null;
         enrichmentData: Record<string, unknown> | null;
