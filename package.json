@@ -11,6 +11,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
+    "test": "pnpm -r run test --if-present",
     "db:generate": "pnpm --filter=@salessearchers/db db:generate",
     "db:push": "pnpm --filter=@salessearchers/db db:push",
     "db:migrate": "pnpm --filter=@salessearchers/db db:migrate",
