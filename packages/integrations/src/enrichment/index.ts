@@ -155,6 +155,7 @@ interface BetterContactSubmitRequest {
     custom_fields?: {
       uuid?: string;
       list_name?: string;
+      contact_id?: string;
     };
   }>;
   enrich_email_address: boolean;
@@ -200,6 +201,7 @@ interface BetterContactFetchResponse {
     custom_fields?: {
       uuid?: string;
       list_name?: string;
+      contact_id?: string;
     };
   }>;
 }
