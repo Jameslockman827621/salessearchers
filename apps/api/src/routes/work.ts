@@ -139,7 +139,7 @@ export const workRoutes: FastifyPluginAsync = async (fastify) => {
             title: thread.subject || 'No subject',
             subtitle: thread.snippet,
             reason: `${thread.unreadCount} unread message(s)`,
-            createdAt: thread.lastMessageAt,
+            createdAt: thread.lastMessageAt || thread.createdAt,
             dueAt: null,
             contactId: contact?.id || null,
             contactName: contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : null,
@@ -165,50 +165,45 @@ export const workRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     // ===========================================
-    // 2. LinkedIn Replies Needed (URGENT)
+    // 2. LinkedIn Messages (URGENT) - Unread based on readAt being null
     // ===========================================
     if (!query.type || query.type === 'LINKEDIN_REPLY_NEEDED') {
       try {
         const unreadLinkedIn = await prisma.linkedInMessage.findMany({
           where: {
             tenantId,
-            isRead: false,
+            readAt: null,
             isOutbound: false,
-          },
-          include: {
-            contact: { include: { company: true } },
-            account: true,
           },
           take: 20,
           orderBy: { sentAt: 'desc' },
         });
 
         for (const msg of unreadLinkedIn) {
-          const contact = msg.contact;
           workItems.push({
             id: `linkedin-msg-${msg.id}`,
             type: 'LINKEDIN_REPLY_NEEDED',
             priority: 'URGENT',
-            title: contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : 'LinkedIn Message',
+            title: msg.senderName || 'LinkedIn Message',
             subtitle: msg.body?.slice(0, 100) || null,
             reason: 'Unread LinkedIn message',
             createdAt: msg.sentAt,
             dueAt: null,
-            contactId: contact?.id || null,
-            contactName: contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : null,
-            contactEmail: contact?.email || null,
-            contactPhone: contact?.phone || null,
-            contactTitle: contact?.title || null,
-            contactAvatarUrl: contact?.avatarUrl || null,
-            companyId: contact?.company?.id || null,
-            companyName: contact?.company?.name || null,
+            contactId: msg.contactId || null,
+            contactName: msg.senderName || null,
+            contactEmail: null,
+            contactPhone: null,
+            contactTitle: null,
+            contactAvatarUrl: null,
+            companyId: null,
+            companyName: null,
             resourceType: 'linkedin_message',
             resourceId: msg.id,
             recommendedAction: 'REPLY',
             actionUrl: `/linkedin?thread=${msg.threadId}`,
-            canCall: !!contact?.phone,
-            canEmail: !!contact?.email,
-            canLinkedIn: !!contact?.linkedinUrl,
+            canCall: false,
+            canEmail: false,
+            canLinkedIn: true,
             metadata: {},
           });
         }
@@ -279,43 +274,38 @@ export const workRoutes: FastifyPluginAsync = async (fastify) => {
             tenantId,
             userId,
             status: 'PENDING',
-            scheduledFor: { lte: now },
-          },
-          include: {
-            contact: { include: { company: true } },
-            account: true,
+            scheduledAt: { lte: now },
           },
           take: 20,
-          orderBy: { scheduledFor: 'asc' },
+          orderBy: { scheduledAt: 'asc' },
         });
 
         for (const action of linkedInActions) {
-          const contact = action.contact;
           workItems.push({
             id: `linkedin-action-${action.id}`,
             type: 'LINKEDIN_ACTION',
             priority: 'MEDIUM',
-            title: `${action.type.replace(/_/g, ' ')}: ${contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : 'Unknown'}`,
-            subtitle: action.type === 'MESSAGE' ? action.messageContent?.slice(0, 100) || null : null,
+            title: `${action.actionType.replace(/_/g, ' ')}: ${action.linkedinUrl || 'Unknown'}`,
+            subtitle: action.actionType === 'MESSAGE' ? action.messageBody?.slice(0, 100) || null : null,
             reason: 'LinkedIn action scheduled',
             createdAt: action.createdAt,
-            dueAt: action.scheduledFor,
-            contactId: contact?.id || null,
-            contactName: contact ? [contact.firstName, contact.lastName].filter(Boolean).join(' ') : null,
-            contactEmail: contact?.email || null,
-            contactPhone: contact?.phone || null,
-            contactTitle: contact?.title || null,
-            contactAvatarUrl: contact?.avatarUrl || null,
-            companyId: contact?.company?.id || null,
-            companyName: contact?.company?.name || null,
+            dueAt: action.scheduledAt,
+            contactId: action.contactId || null,
+            contactName: null,
+            contactEmail: null,
+            contactPhone: null,
+            contactTitle: null,
+            contactAvatarUrl: null,
+            companyId: null,
+            companyName: null,
             resourceType: 'linkedin_action',
             resourceId: action.id,
             recommendedAction: 'EXECUTE',
             actionUrl: `/linkedin?action=${action.id}`,
-            canCall: !!contact?.phone,
-            canEmail: !!contact?.email,
-            canLinkedIn: !!contact?.linkedinUrl,
-            metadata: { actionType: action.type },
+            canCall: false,
+            canEmail: false,
+            canLinkedIn: true,
+            metadata: { actionType: action.actionType },
           });
         }
       } catch (error) {
@@ -335,7 +325,7 @@ export const workRoutes: FastifyPluginAsync = async (fastify) => {
             doNotCall: false,
             OR: [
               { lastContactedAt: null },
-              { lastContactedAt: { lt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } }, // Not contacted in 7 days
+              { lastContactedAt: { lt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } },
             ],
           },
           include: { company: true, leadScore: true },
@@ -420,7 +410,6 @@ export const workRoutes: FastifyPluginAsync = async (fastify) => {
     preHandler: [fastify.authenticate],
   }, async (request, reply) => {
     const tenantId = request.tenantId!;
-    const userId = request.userId!;
 
     const actionSchema = z.object({
       workItemId: z.string(),
@@ -476,7 +465,6 @@ export const workRoutes: FastifyPluginAsync = async (fastify) => {
     await prisma.activity.create({
       data: {
         tenantId,
-        userId,
         type: `work_${data.action.toLowerCase()}`,
         title: `${data.action} action on ${resourceType}`,
         description: data.notes || `Quick action: ${data.action}`,

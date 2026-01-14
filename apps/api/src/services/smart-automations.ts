@@ -76,7 +76,6 @@ export async function autoPauseOnReply(params: {
     if (channel === 'LINKEDIN') {
       const activeCampaignLeads = await prisma.linkedInCampaignLead.findMany({
         where: {
-          tenantId,
           contactId,
           status: { in: ['PENDING', 'CONNECTION_SENT', 'CONNECTED', 'MESSAGED'] },
         },
@@ -150,12 +149,12 @@ export async function triggerDataRoomHotSignal(params: {
         data: {
           tenantId,
           userId: ownerId,
-          type: 'system',
+          type: 'SYSTEM',
           title: `${signalStrength} Signal: Data room "${dataRoom.name}" viewed`,
           body: contact
             ? `${[contact.firstName, contact.lastName].filter(Boolean).join(' ')} from ${contact.company?.name || 'Unknown company'} spent ${Math.round(duration / 60)} minutes viewing ${pagesViewed} page(s).`
             : `Anonymous viewer spent ${Math.round(duration / 60)} minutes viewing ${pagesViewed} page(s).`,
-          priority: isHighEngagement ? 'high' : 'medium',
+          metadata: { signalStrength, isHighEngagement },
         },
       });
     }
