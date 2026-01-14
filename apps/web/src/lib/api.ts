@@ -1407,6 +1407,8 @@ class ApiClient {
       avatarUrl: string | null;
       headline: string | null;
       status: 'CONNECTED' | 'DISCONNECTED' | 'VERIFYING' | 'NEEDS_ATTENTION' | 'RECONNECTING' | 'RATE_LIMITED' | 'SUSPENDED';
+      errorMessage: string | null;
+      errorCode: string | null;
       connectionMethod: 'COOKIE' | 'CREDENTIALS' | 'EXTENSION';
       dailyConnectionLimit: number;
       dailyMessageLimit: number;
