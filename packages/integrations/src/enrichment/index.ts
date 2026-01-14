@@ -101,6 +101,7 @@ export interface EnrichmentProvider {
   enrichContactByEmail(email: string, options?: EnrichmentOptions): Promise<ContactEnrichmentResult | null>;
   enrichContactByLinkedinUrl(linkedinUrl: string, options?: EnrichmentOptions): Promise<ContactEnrichmentResult | null>;
   enrichContact(data: {
+    contactId?: string;
     firstName?: string;
     lastName?: string;
     email?: string;

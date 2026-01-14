@@ -385,7 +385,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
         where: { id: enrichmentJob.id },
         data: {
           status: 'FAILED',
-          failureReason: (error as Error).message,
+          errorMessage: (error as Error).message,
         },
       });
     }

@@ -342,7 +342,7 @@ export const companyFinderRoutes: FastifyPluginAsync = async (fastify) => {
                 });
 
                 // Update contact with enriched data
-                if (result.email || result.phone) {
+                if (result && (result.email || result.phone)) {
                   await prisma.contact.update({
                     where: { id: contact.id },
                     data: {

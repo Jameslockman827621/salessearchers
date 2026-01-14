@@ -164,7 +164,7 @@ export async function linkedInRoutes(fastify: FastifyInstance) {
           sessionCookie: data.sessionCookie,
           csrfToken: data.csrfToken,
           connectionMethod: data.connectionMethod,
-          credentials: encryptedCredentials || existing.credentials,
+          credentials: encryptedCredentials || (existing.credentials as object | undefined),
           status,
           lastSyncAt: new Date(),
           errorCode: null,
@@ -570,7 +570,7 @@ export async function linkedInRoutes(fastify: FastifyInstance) {
     const leads = await prisma.linkedInCampaignLead.findMany({
       where: {
         campaignId: id,
-        ...(status && { status: status as 'PENDING' | 'IN_PROGRESS' | 'CONNECTION_SENT' | 'CONNECTED' | 'MESSAGED' | 'REPLIED' | 'COMPLETED' | 'FAILED' | 'SKIPPED' }),
+        ...(status && { status: status as 'PENDING' | 'CONNECTION_SENT' | 'CONNECTED' | 'MESSAGED' | 'REPLIED' | 'COMPLETED' | 'FAILED' | 'SKIPPED' }),
       },
       orderBy: { createdAt: 'desc' },
       skip: (pageNum - 1) * limitNum,
@@ -585,7 +585,7 @@ export async function linkedInRoutes(fastify: FastifyInstance) {
     const total = await prisma.linkedInCampaignLead.count({
       where: {
         campaignId: id,
-        ...(status && { status: status as 'PENDING' | 'IN_PROGRESS' | 'CONNECTION_SENT' | 'CONNECTED' | 'MESSAGED' | 'REPLIED' | 'COMPLETED' | 'FAILED' | 'SKIPPED' }),
+        ...(status && { status: status as 'PENDING' | 'CONNECTION_SENT' | 'CONNECTED' | 'MESSAGED' | 'REPLIED' | 'COMPLETED' | 'FAILED' | 'SKIPPED' }),
       },
     });
 

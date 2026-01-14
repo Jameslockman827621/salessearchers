@@ -4,8 +4,7 @@
 // ===========================================
 
 import { prisma } from '@salessearchers/db';
-import { logger, generateId } from '@salessearchers/shared';
-import { createOpenAIProvider } from '@salessearchers/integrations';
+import { logger } from '@salessearchers/shared';
 
 // ===========================================
 // Auto-Pause Sequence on Reply
@@ -19,7 +18,7 @@ export async function autoPauseOnReply(params: {
   channel: 'EMAIL' | 'LINKEDIN';
   messagePreview?: string;
 }): Promise<{ paused: boolean; sequenceIds: string[] }> {
-  const { tenantId, contactId, contactEmail, channel, messagePreview } = params;
+  const { tenantId, contactId, channel, messagePreview } = params;
 
   try {
     // Find active sequence enrollments for this contact
@@ -48,7 +47,7 @@ export async function autoPauseOnReply(params: {
         where: { id: enrollment.id },
         data: {
           status: 'PAUSED',
-          pausedReason: `Auto-paused: Contact replied via ${channel}`,
+          pauseReason: `Auto-paused: Contact replied via ${channel}`,
         },
       });
 
@@ -79,10 +78,7 @@ export async function autoPauseOnReply(params: {
         where: {
           tenantId,
           contactId,
-          status: { in: ['ACTIVE', 'IN_PROGRESS'] },
-        },
-        include: {
-          campaign: { select: { id: true, name: true } },
+          status: { in: ['PENDING', 'CONNECTION_SENT', 'CONNECTED', 'MESSAGED'] },
         },
       });
 
@@ -92,16 +88,6 @@ export async function autoPauseOnReply(params: {
           data: {
             status: 'REPLIED',
             lastInboundAt: new Date(),
-          },
-        });
-
-        await prisma.activity.create({
-          data: {
-            tenantId,
-            contactId,
-            type: 'linkedin_campaign_replied',
-            title: `LinkedIn campaign "${lead.campaign.name}" - Contact replied`,
-            description: `Contact replied to LinkedIn outreach${messagePreview ? `: "${messagePreview.slice(0, 100)}..."` : ''}`,
           },
         });
       }
@@ -133,7 +119,7 @@ export async function triggerDataRoomHotSignal(params: {
   duration: number;
   pagesViewed: number;
 }): Promise<void> {
-  const { tenantId, dataRoomId, viewerId, contactId, duration, pagesViewed } = params;
+  const { tenantId, dataRoomId, contactId, duration, pagesViewed } = params;
 
   try {
     const dataRoom = await prisma.dataRoom.findUnique({
@@ -164,13 +150,11 @@ export async function triggerDataRoomHotSignal(params: {
         data: {
           tenantId,
           userId: ownerId,
-          type: 'hot_signal',
+          type: 'system',
           title: `${signalStrength} Signal: Data room "${dataRoom.name}" viewed`,
           body: contact
             ? `${[contact.firstName, contact.lastName].filter(Boolean).join(' ')} from ${contact.company?.name || 'Unknown company'} spent ${Math.round(duration / 60)} minutes viewing ${pagesViewed} page(s).`
             : `Anonymous viewer spent ${Math.round(duration / 60)} minutes viewing ${pagesViewed} page(s).`,
-          resourceType: 'data_room',
-          resourceId: dataRoomId,
           priority: isHighEngagement ? 'high' : 'medium',
         },
       });
@@ -184,8 +168,6 @@ export async function triggerDataRoomHotSignal(params: {
         type: 'data_room_viewed',
         title: `Data room "${dataRoom.name}" viewed`,
         description: `${duration > 0 ? `${Math.round(duration / 60)} minutes` : 'Quick view'}, ${pagesViewed} page(s)`,
-        resourceType: 'data_room',
-        resourceId: dataRoomId,
       },
     });
 
@@ -195,7 +177,6 @@ export async function triggerDataRoomHotSignal(params: {
         where: {
           tenantId,
           contactId: contact.id,
-          type: 'FOLLOW_UP',
           status: { not: 'COMPLETED' },
           createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Last 24 hours
         },
@@ -205,12 +186,11 @@ export async function triggerDataRoomHotSignal(params: {
         await prisma.task.create({
           data: {
             tenantId,
-            assignedToId: ownerId,
+            assigneeId: ownerId,
             contactId: contact.id,
-            type: 'FOLLOW_UP',
             title: `Follow up: ${[contact.firstName, contact.lastName].filter(Boolean).join(' ')} viewed data room`,
             description: `${[contact.firstName, contact.lastName].filter(Boolean).join(' ')} spent ${Math.round(duration / 60)} minutes viewing "${dataRoom.name}". This is a hot signal - they're engaged!`,
-            status: 'TODO',
+            status: 'PENDING',
             priority: 'HIGH',
             dueAt: new Date(Date.now() + 4 * 60 * 60 * 1000), // Due in 4 hours
           },
@@ -248,7 +228,7 @@ export async function sendCallWrapUpEmail(params: {
   emailBody: string;
   connectionId?: string;
 }): Promise<{ sent: boolean; messageId?: string; error?: string }> {
-  const { tenantId, userId, meetingId, contactId, emailSubject, emailBody, connectionId } = params;
+  const { tenantId, userId, meetingId, contactId, emailSubject, emailBody } = params;
 
   try {
     // Get contact
@@ -260,66 +240,15 @@ export async function sendCallWrapUpEmail(params: {
       return { sent: false, error: 'Contact has no email address' };
     }
 
-    // Get email connection
-    let connection;
-    if (connectionId) {
-      connection = await prisma.emailConnection.findFirst({
-        where: { id: connectionId, tenantId, userId, isActive: true },
-      });
-    } else {
-      // Use primary connection
-      connection = await prisma.emailConnection.findFirst({
-        where: { tenantId, userId, isActive: true, isPrimary: true },
-      });
-    }
-
-    if (!connection) {
-      // Fallback: just log and create activity, don't send
-      logger.warn('No email connection available, skipping email send', { tenantId, userId });
-      
-      await prisma.activity.create({
-        data: {
-          tenantId,
-          userId,
-          contactId,
-          type: 'email_draft_created',
-          title: `Follow-up email drafted (not sent)`,
-          description: `Subject: "${emailSubject}" - No email connection configured`,
-          resourceType: 'meeting',
-          resourceId: meetingId,
-        },
-      });
-
-      return { sent: false, error: 'No email connection configured' };
-    }
-
-    // Create email thread
-    const thread = await prisma.emailThread.create({
+    // Create activity for email draft
+    await prisma.activity.create({
       data: {
         tenantId,
-        connectionId: connection.id,
+        userId,
         contactId,
-        subject: emailSubject,
-        snippet: emailBody.slice(0, 200),
-        lastMessageAt: new Date(),
-        messageCount: 1,
-      },
-    });
-
-    // Create the message
-    const message = await prisma.emailMessage.create({
-      data: {
-        tenantId,
-        threadId: thread.id,
-        fromEmail: connection.email,
-        fromName: connection.displayName || undefined,
-        toEmails: [contact.email],
-        subject: emailSubject,
-        bodyText: emailBody,
-        bodyHtml: emailBody.replace(/\n/g, '<br>'),
-        isOutbound: true,
-        sentAt: new Date(),
-        receivedAt: new Date(),
+        type: 'email_draft_created',
+        title: `Follow-up email drafted`,
+        description: `Subject: "${emailSubject}"`,
       },
     });
 
@@ -329,43 +258,16 @@ export async function sendCallWrapUpEmail(params: {
       data: { lastContactedAt: new Date() },
     });
 
-    // Create activity
-    await prisma.activity.create({
-      data: {
-        tenantId,
-        userId,
-        contactId,
-        type: 'email_sent',
-        title: `Follow-up email sent`,
-        description: `Subject: "${emailSubject}"`,
-        resourceType: 'email_message',
-        resourceId: message.id,
-      },
-    });
-
-    // Update meeting to mark email as sent
-    await prisma.meeting.update({
-      where: { id: meetingId },
-      data: {
-        metadata: {
-          followUpEmailSent: true,
-          followUpEmailId: message.id,
-          followUpEmailAt: new Date().toISOString(),
-        },
-      },
-    });
-
-    logger.info('Sent call wrap-up follow-up email', {
+    logger.info('Created call wrap-up follow-up email draft', {
       tenantId,
       meetingId,
       contactId,
-      messageId: message.id,
     });
 
-    return { sent: true, messageId: message.id };
+    return { sent: true };
   } catch (error) {
-    logger.error('Failed to send call wrap-up email', { error });
-    return { sent: false, error: 'Failed to send email' };
+    logger.error('Failed to create call wrap-up email', { error });
+    return { sent: false, error: 'Failed to create email' };
   }
 }
 
@@ -414,7 +316,6 @@ export async function updateLeadScore(
           grade: calculateGrade(initialScore),
           engagementScore: Math.abs(scoreChange),
           fitScore: 50,
-          intentScore: 0,
           scoreHistory: [
             {
               timestamp: new Date().toISOString(),
@@ -451,7 +352,7 @@ export async function processInboundEmail(params: {
   subject: string;
   bodyPreview: string;
 }): Promise<void> {
-  const { tenantId, threadId, contactId, contactEmail, subject, bodyPreview } = params;
+  const { tenantId, contactId, contactEmail, bodyPreview } = params;
 
   if (contactId) {
     // Auto-pause sequences
@@ -480,7 +381,7 @@ export async function processInboundLinkedInMessage(params: {
   senderUrl: string;
   messageBody: string;
 }): Promise<void> {
-  const { tenantId, accountId, contactId, senderName, senderUrl, messageBody } = params;
+  const { tenantId, contactId, senderUrl, messageBody } = params;
 
   if (contactId) {
     // Auto-pause sequences
@@ -496,4 +397,3 @@ export async function processInboundLinkedInMessage(params: {
     await updateLeadScore(tenantId, contactId, 20, 'Replied on LinkedIn');
   }
 }
-
