@@ -106,8 +106,7 @@ export default function LinkedInPage() {
     queryFn: () => api.getLinkedInAccounts(),
     // Poll every 3 seconds when there are accounts being verified
     refetchInterval: (query) => {
-      const data = query.state.data;
-      const accounts = data?.data ?? data ?? [];
+      const accounts = query.state.data ?? [];
       const hasVerifying = Array.isArray(accounts) && accounts.some((a: LinkedInAccount) => a.status === 'VERIFYING');
       return hasVerifying ? 3000 : false;
     },
