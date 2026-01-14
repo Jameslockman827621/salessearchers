@@ -79,7 +79,7 @@ interface ContactWithPriority {
 // Icon Mapping
 // ===========================================
 
-const QUEUE_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+const QUEUE_ICONS: Record<string, typeof Phone> = {
   phone: Phone,
   clock: Clock,
   flame: Flame,
