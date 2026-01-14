@@ -1,0 +1,2103 @@
+// ===========================================
+// Prisma Schema (Complete Implementation)
+// ===========================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// Multi-tenancy & Auth
+// ===========================================
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  domain    String?
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships         Membership[]
+  auditLogs           AuditLog[]
+  recordingPolicies   RecordingPolicy[]
+  calendarConnections CalendarConnection[]
+  meetings            Meeting[]
+  contacts            Contact[]
+  companies           Company[]
+  deals               Deal[]
+  tasks               Task[]
+  pipelineStages      PipelineStage[]
+  webhookEvents       WebhookEvent[]
+  emailConnections    EmailConnection[]
+  emailThreads        EmailThread[]
+  emailMessages       EmailMessage[]
+  emailSequences      EmailSequence[]
+  sequenceEnrollments SequenceEnrollment[]
+  enrichmentJobs      EnrichmentJob[]
+  coachingSessions    CoachingSession[]
+  coachingFeedback    CoachingFeedback[]
+  activities          Activity[]
+  dataRooms           DataRoom[]
+  linkedInActions     LinkedInAction[]
+  linkedInAccounts    LinkedInAccount[]
+  linkedInCampaigns   LinkedInCampaign[]
+  linkedInMessages    LinkedInMessage[]
+  notifications         Notification[]
+  teamInvitations       TeamInvitation[]
+  importJobs            ImportJob[]
+  exportJobs            ExportJob[]
+  generatedContents     GeneratedContent[]
+  savedViews            SavedView[]
+  notes                 Note[]
+  workflowAutomations   WorkflowAutomation[]
+  templates             Template[]
+  leadScores            LeadScore[]
+  leadScoringRules      LeadScoringRule[]
+  customFields          CustomField[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String?
+  firstName    String?
+  lastName     String?
+  avatarUrl    String?
+  timezone     String   @default("UTC")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships         Membership[]
+  calendarConnections CalendarConnection[]
+  emailConnections    EmailConnection[]
+  meetingsOwned       Meeting[]
+  tasksAssigned       Task[]              @relation("TaskAssignee")
+  tasksCreated        Task[]              @relation("TaskCreator")
+  auditLogs           AuditLog[]
+  sequencesCreated    EmailSequence[]
+  coachingSessions    CoachingSession[]
+  coachingFeedback    CoachingFeedback[]
+  activities          Activity[]
+  dataRoomsCreated    DataRoom[]
+  linkedInActions     LinkedInAction[]
+  linkedInAccounts    LinkedInAccount[]
+  notifications       Notification[]
+  notificationPrefs   NotificationPreference?
+  invitationsSent     TeamInvitation[] @relation("InvitationsSent")
+  invitationsAccepted TeamInvitation[] @relation("InvitationsAccepted")
+  importJobs          ImportJob[]
+  exportJobs          ExportJob[]
+  generatedContents     GeneratedContent[]
+  savedViews            SavedView[]
+  notes                 Note[]
+  workflowAutomations   WorkflowAutomation[]
+  templates             Template[]
+}
+
+model Membership {
+  id       String  @id @default(uuid())
+  userId   String
+  tenantId String
+  role     String  @default("MEMBER") // OWNER, ADMIN, MANAGER, MEMBER
+  isActive Boolean @default(true)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, tenantId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  tenantId   String
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([action])
+}
+
+// ===========================================
+// Calendar Integration
+// ===========================================
+
+model RecordingPolicy {
+  id           String              @id @default(uuid())
+  tenantId     String
+  userId       String?
+  ruleType     RecordingRuleType
+  keywords     String[]            @default([])
+  isOrgDefault Boolean             @default(false)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+}
+
+enum RecordingRuleType {
+  ALWAYS
+  EXTERNAL_ONLY
+  KEYWORD_INCLUDE
+  KEYWORD_EXCLUDE
+  MANUAL_ONLY
+}
+
+model CalendarConnection {
+  id           String   @id @default(uuid())
+  tenantId     String
+  userId       String
+  provider     String   // GOOGLE, MICROSOFT
+  email        String
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  scopes       String[] @default([])
+  syncCursor   String?
+  lastSyncAt   DateTime?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarEvents CalendarEvent[]
+
+  @@unique([tenantId, userId, provider, email])
+  @@index([userId])
+}
+
+model CalendarEvent {
+  id                   String   @id @default(uuid())
+  calendarConnectionId String
+  externalId           String
+  title                String?
+  description          String?
+  startTime            DateTime
+  endTime              DateTime
+  isAllDay             Boolean  @default(false)
+  attendees            Json?    // Array of { email, name, responseStatus }
+  organizerEmail       String?
+  meetingUrl           String?
+  status               String   @default("confirmed")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  calendarConnection CalendarConnection @relation(fields: [calendarConnectionId], references: [id], onDelete: Cascade)
+  meeting            Meeting?
+
+  @@unique([calendarConnectionId, externalId])
+  @@index([startTime])
+}
+
+// ===========================================
+// Meetings & Recording
+// ===========================================
+
+model Meeting {
+  id              String        @id @default(uuid())
+  tenantId        String
+  userId          String
+  calendarEventId String?       @unique
+  meetingUrl      String
+  title           String?
+  platform        MeetingPlatform
+  status          MeetingStatus @default(SCHEDULED)
+  scheduledAt     DateTime?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  duration        Int?          // seconds
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user             User            @relation(fields: [userId], references: [id])
+  calendarEvent    CalendarEvent?  @relation(fields: [calendarEventId], references: [id])
+  botSession       MeetingBotSession?
+  assets           MeetingAsset[]
+  transcript       MeetingTranscript?
+  insights         MeetingInsight[]
+  participants     MeetingParticipant[]
+  coachingFeedback CoachingFeedback[]
+
+  @@index([tenantId, scheduledAt])
+  @@index([status])
+}
+
+enum MeetingPlatform {
+  ZOOM
+  GOOGLE_MEET
+  TEAMS
+  WEBEX
+  OTHER
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  BOT_JOINING
+  RECORDING
+  PROCESSING
+  READY
+  FAILED
+  CANCELLED
+}
+
+model MeetingBotSession {
+  id              String   @id @default(uuid())
+  meetingId       String   @unique
+  provider        String   @default("recall")
+  providerBotId   String
+  providerPayload Json?
+  joinedAt        DateTime?
+  leftAt          DateTime?
+  joinAttempts    Int      @default(0)
+  failureReason   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([providerBotId])
+}
+
+model MeetingAsset {
+  id         String   @id @default(uuid())
+  meetingId  String
+  type       String   // video, audio, screen_share
+  storageKey String
+  mimeType   String?
+  sizeBytes  Int?
+  duration   Int?     // seconds
+  createdAt  DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model MeetingTranscript {
+  id        String   @id @default(uuid())
+  meetingId String   @unique
+  text      String?
+  segments  Json?    // Array of { speaker, startTime, endTime, text }
+  language  String   @default("en")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model MeetingInsight {
+  id           String   @id @default(uuid())
+  meetingId    String
+  version      Int      @default(1)
+  summary      String?
+  actionItems  Json?    // Array of { text, assignee, dueDate }
+  keyTopics    Json?    // Array of { topic, mentions }
+  objections   Json?    // Array of { text, response, resolved }
+  nextSteps    Json?    // Array of { text, owner }
+  coachingTips Json?    // Array of { tip, category }
+  sentiment    String?  // POSITIVE, NEUTRAL, NEGATIVE, MIXED
+  model        String?  // AI model used
+  createdAt    DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, version])
+}
+
+model MeetingParticipant {
+  id         String   @id @default(uuid())
+  meetingId  String
+  contactId  String?
+  name       String?
+  email      String?
+  isExternal Boolean  @default(false)
+  speakTime  Int?     // seconds
+  createdAt  DateTime @default(now())
+
+  meeting Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id])
+
+  @@index([meetingId])
+}
+
+// ===========================================
+// CRM
+// ===========================================
+
+model Contact {
+  id            String   @id @default(uuid())
+  tenantId      String
+  email         String?
+  phone         String?
+  firstName     String?
+  lastName      String?
+  title         String?
+  linkedinUrl   String?
+  avatarUrl     String?
+  timezone      String?
+  source        String?
+  enrichedAt    DateTime?
+  enrichmentData Json?
+  unsubscribedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Smart Queue fields
+  lastContactedAt   DateTime?           // When we last reached out (call/email/linkedin)
+  lastRepliedAt     DateTime?           // When contact last replied/engaged
+  nextActionAt      DateTime?           // When next action should happen
+  callPriority      Int       @default(0) // 0-1000 calculated priority score
+  doNotCall         Boolean   @default(false)
+  doNotEmail        Boolean   @default(false)
+  status            ContactStatus @default(ACTIVE)
+  ownerUserId       String?             // Assigned sales rep
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  companyId    String?
+  company      Company?             @relation(fields: [companyId], references: [id])
+  deals        DealContact[]
+  tasks        Task[]
+  participants MeetingParticipant[]
+  emailThreads EmailThread[]
+  sequenceEnrollments SequenceEnrollment[]
+  activities   Activity[]
+  dataRooms    DataRoom[]
+  dataRoomViews DataRoomView[]
+  linkedInActions LinkedInAction[]
+  linkedInCampaignLeads LinkedInCampaignLead[]
+  linkedInMessages LinkedInMessage[]
+  leadScore    LeadScore?
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, callPriority])
+  @@index([tenantId, status])
+  @@index([tenantId, lastContactedAt])
+  @@index([tenantId, nextActionAt])
+}
+
+enum ContactStatus {
+  ACTIVE
+  NURTURING
+  QUALIFIED
+  CUSTOMER
+  CHURNED
+  DO_NOT_CONTACT
+}
+
+model Company {
+  id             String   @id @default(uuid())
+  tenantId       String
+  name           String
+  domain         String?
+  linkedinUrl    String?
+  website        String?
+  industry       String?
+  size           String?
+  location       String?
+  description    String?
+  logoUrl        String?
+  enrichedAt     DateTime?
+  enrichmentData Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contacts   Contact[]
+  deals      Deal[]
+  activities Activity[]
+
+  @@unique([tenantId, domain])
+  @@index([tenantId])
+}
+
+model Deal {
+  id           String    @id @default(uuid())
+  tenantId     String
+  companyId    String?
+  name         String
+  value        Float?
+  currency     String    @default("USD")
+  stageId      String?
+  probability  Float?
+  expectedClose DateTime?
+  closedAt     DateTime?
+  lostReason   String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  company      Company?       @relation(fields: [companyId], references: [id])
+  stage        PipelineStage? @relation(fields: [stageId], references: [id])
+  contacts     DealContact[]
+  tasks        Task[]
+  emailThreads EmailThread[]
+  activities   Activity[]
+  dataRooms    DataRoom[]
+
+  @@index([tenantId, stageId])
+}
+
+model DealContact {
+  id        String   @id @default(uuid())
+  dealId    String
+  contactId String
+  role      String?  // champion, decision_maker, influencer, etc.
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  deal    Deal    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, contactId])
+}
+
+model PipelineStage {
+  id       String  @id @default(uuid())
+  tenantId String
+  name     String
+  order    Int
+  color    String?
+  isWon    Boolean @default(false)
+  isLost   Boolean @default(false)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deals  Deal[]
+
+  @@index([tenantId, order])
+}
+
+// ===========================================
+// Tasks
+// ===========================================
+
+model Task {
+  id          String     @id @default(uuid())
+  tenantId    String
+  title       String
+  description String?
+  status      TaskStatus @default(PENDING)
+  priority    TaskPriority @default(MEDIUM)
+  dueAt       DateTime?
+  completedAt DateTime?
+  source      String?    // manual, meeting_insight, email, automation
+  sourceId    String?    // Reference to source entity
+  assigneeId  String?
+  creatorId   String?
+  contactId   String?
+  dealId      String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignee User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator  User?    @relation("TaskCreator", fields: [creatorId], references: [id])
+  contact  Contact? @relation(fields: [contactId], references: [id])
+  deal     Deal?    @relation(fields: [dealId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([assigneeId])
+  @@index([dueAt])
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ===========================================
+// Email Integration
+// ===========================================
+
+model EmailConnection {
+  id           String   @id @default(uuid())
+  tenantId     String
+  userId       String
+  provider     String   @default("GMAIL") // GMAIL, OUTLOOK
+  email        String
+  displayName  String?
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  scopes       String[] @default([])
+  historyId    String?  // For Gmail incremental sync
+  lastSyncAt   DateTime?
+  isActive     Boolean  @default(true)
+  isPrimary    Boolean  @default(false)
+  dailySendLimit Int    @default(100)
+  dailySentCount Int    @default(0)
+  dailySentResetAt DateTime?
+  warmupEnabled Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threads      EmailThread[]
+  sentMessages EmailMessage[] @relation("SentFrom")
+  sequenceEnrollments SequenceEnrollment[]
+
+  @@unique([tenantId, userId, email])
+  @@index([userId])
+}
+
+model EmailThread {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  emailConnectionId   String
+  externalThreadId    String
+  subject             String?
+  snippet             String?
+  participantEmails   String[]
+  contactId           String?
+  dealId              String?
+  lastMessageAt       DateTime?
+  messageCount        Int      @default(0)
+  unreadCount         Int      @default(0)
+  isArchived          Boolean  @default(false)
+  isStarred           Boolean  @default(false)
+  labels              String[] @default([])
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  emailConnection EmailConnection @relation(fields: [emailConnectionId], references: [id], onDelete: Cascade)
+  contact         Contact?        @relation(fields: [contactId], references: [id])
+  deal            Deal?           @relation(fields: [dealId], references: [id])
+  messages        EmailMessage[]
+
+  @@unique([emailConnectionId, externalThreadId])
+  @@index([tenantId, lastMessageAt])
+  @@index([contactId])
+}
+
+model EmailMessage {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  threadId            String
+  externalMessageId   String
+  sentFromConnectionId String?
+  fromEmail           String
+  fromName            String?
+  toEmails            String[]
+  ccEmails            String[] @default([])
+  bccEmails           String[] @default([])
+  subject             String?
+  bodyHtml            String?
+  bodyText            String?
+  snippet             String?
+  sentAt              DateTime?
+  receivedAt          DateTime
+  isRead              Boolean  @default(false)
+  isOutbound          Boolean  @default(false)
+  hasAttachments      Boolean  @default(false)
+  attachments         Json?    // Array of { filename, mimeType, size, storageKey }
+  headers             Json?
+  labels              String[] @default([])
+  // Sequence tracking
+  sequenceEnrollmentId String?
+  sequenceStepId      String?
+  trackingId          String?  @unique // For open/click tracking
+  createdAt           DateTime @default(now())
+
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  thread             EmailThread         @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sentFromConnection EmailConnection?    @relation("SentFrom", fields: [sentFromConnectionId], references: [id])
+  sequenceEnrollment SequenceEnrollment? @relation(fields: [sequenceEnrollmentId], references: [id])
+  sequenceStep       SequenceStep?       @relation(fields: [sequenceStepId], references: [id])
+  trackingEvents     EmailTrackingEvent[]
+
+  @@unique([threadId, externalMessageId])
+  @@index([tenantId, receivedAt])
+  @@index([fromEmail])
+  @@index([sequenceEnrollmentId])
+}
+
+model EmailTrackingEvent {
+  id        String   @id @default(uuid())
+  messageId String
+  eventType String   // OPEN, CLICK, REPLY, BOUNCE, UNSUBSCRIBE
+  linkUrl   String?  // For click events
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  message EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, eventType])
+}
+
+// ===========================================
+// Email Sequences
+// ===========================================
+
+model EmailSequence {
+  id           String         @id @default(uuid())
+  tenantId     String
+  name         String
+  description  String?
+  status       SequenceStatus @default(DRAFT)
+  sendingSchedule Json?       // { days: [1,2,3,4,5], startHour: 9, endHour: 17, timezone: "America/New_York" }
+  settings     Json?          // { stopOnReply: true, stopOnMeetingBooked: true, trackOpens: true, trackClicks: true }
+  stats        Json?          // { enrolled: 0, active: 0, completed: 0, replied: 0, meetings: 0 }
+  createdById  String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   User?                @relation(fields: [createdById], references: [id])
+  steps       SequenceStep[]
+  enrollments SequenceEnrollment[]
+
+  @@index([tenantId, status])
+}
+
+enum SequenceStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+model SequenceStep {
+  id           String       @id @default(uuid())
+  sequenceId   String
+  stepNumber   Int
+  stepType     StepType     @default(EMAIL)
+  delayDays    Int          @default(1)
+  delayHours   Int          @default(0)
+  subject      String?
+  bodyHtml     String?
+  bodyText     String?
+  // Personalization variables: {{firstName}}, {{company}}, {{customField}}
+  isEnabled    Boolean      @default(true)
+  stats        Json?        // { sent: 0, opened: 0, clicked: 0, replied: 0 }
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  sequence    EmailSequence        @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  enrollments SequenceEnrollment[] @relation("CurrentStep")
+  messages    EmailMessage[]
+
+  @@unique([sequenceId, stepNumber])
+  @@index([sequenceId])
+}
+
+enum StepType {
+  EMAIL
+  TASK
+  LINKEDIN_VIEW
+  LINKEDIN_CONNECT
+  LINKEDIN_MESSAGE
+  MANUAL_TASK
+  WAIT
+}
+
+model SequenceEnrollment {
+  id                  String           @id @default(uuid())
+  tenantId            String
+  sequenceId          String
+  contactId           String
+  emailConnectionId   String
+  status              EnrollmentStatus @default(ACTIVE)
+  currentStepId       String?
+  currentStepNumber   Int              @default(0)
+  nextScheduledAt     DateTime?
+  enrolledAt          DateTime         @default(now())
+  completedAt         DateTime?
+  pausedAt            DateTime?
+  pauseReason         String?
+  unsubscribedAt      DateTime?
+  variables           Json?            // Custom variables for personalization
+  stats               Json?            // { emailsSent: 0, opens: 0, clicks: 0, replies: 0 }
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sequence        EmailSequence   @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  contact         Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  emailConnection EmailConnection @relation(fields: [emailConnectionId], references: [id], onDelete: Cascade)
+  currentStep     SequenceStep?   @relation("CurrentStep", fields: [currentStepId], references: [id])
+  messages        EmailMessage[]
+  events          SequenceEvent[]
+  linkedInActions LinkedInAction[]
+
+  @@unique([sequenceId, contactId])
+  @@index([tenantId, status])
+  @@index([nextScheduledAt])
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  REPLIED
+  BOUNCED
+  UNSUBSCRIBED
+  MEETING_BOOKED
+  MANUALLY_REMOVED
+}
+
+model SequenceEvent {
+  id           String   @id @default(uuid())
+  enrollmentId String
+  eventType    String   // ENROLLED, STEP_SENT, STEP_OPENED, STEP_CLICKED, REPLIED, BOUNCED, COMPLETED, PAUSED, RESUMED
+  stepNumber   Int?
+  details      Json?
+  createdAt    DateTime @default(now())
+
+  enrollment SequenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentId, createdAt])
+}
+
+// ===========================================
+// Webhooks
+// ===========================================
+
+model WebhookEvent {
+  id              String    @id @default(uuid())
+  provider        String
+  providerEventId String
+  eventType       String
+  payload         Json
+  tenantId        String?
+  attempts        Int       @default(1)
+  processedAt     DateTime?
+  failureReason   String?
+  createdAt       DateTime  @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([provider, providerEventId])
+  @@index([provider, eventType])
+}
+
+// ===========================================
+// Data Enrichment
+// ===========================================
+
+model EnrichmentJob {
+  id              String            @id @default(uuid())
+  tenantId        String
+  entityType      EnrichmentEntityType
+  entityId        String
+  provider        String            // bettercontact, clearbit, etc.
+  status          EnrichmentStatus  @default(PENDING)
+  priority        Int               @default(0)
+  requestData     Json?
+  responseData    Json?
+  creditsUsed     Int               @default(0)
+  errorMessage    String?
+  requestedAt     DateTime          @default(now())
+  completedAt     DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([entityType, entityId])
+}
+
+enum EnrichmentEntityType {
+  CONTACT
+  COMPANY
+}
+
+enum EnrichmentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  PARTIAL
+}
+
+// ===========================================
+// AI Coaching
+// ===========================================
+
+model CoachingSession {
+  id              String   @id @default(uuid())
+  tenantId        String
+  userId          String
+  periodStart     DateTime
+  periodEnd       DateTime
+  meetingCount    Int      @default(0)
+  totalTalkTime   Int      @default(0)  // seconds
+  totalListenTime Int      @default(0)  // seconds
+  avgTalkRatio    Float?
+  avgSentiment    Float?
+  
+  // Performance metrics
+  questionsAsked      Int      @default(0)
+  objectionHandled    Int      @default(0)
+  actionItemsCreated  Int      @default(0)
+  followUpsMade       Int      @default(0)
+  
+  // AI-generated coaching
+  strengths       Json?    // Array of { area, score, examples }
+  improvements    Json?    // Array of { area, score, suggestions }
+  weeklyGoals     Json?    // Array of { goal, target, progress }
+  overallScore    Float?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodStart, periodEnd])
+  @@index([tenantId, userId])
+}
+
+model CoachingFeedback {
+  id              String   @id @default(uuid())
+  tenantId        String
+  userId          String
+  meetingId       String?
+  category        String   // talk_ratio, questions, objection_handling, etc.
+  severity        String   // positive, neutral, warning, critical
+  title           String
+  description     String
+  suggestion      String?
+  timestamp       DateTime?
+  isAcknowledged  Boolean  @default(false)
+  acknowledgedAt  DateTime?
+  createdAt       DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meeting Meeting? @relation(fields: [meetingId], references: [id])
+
+  @@index([tenantId, userId])
+  @@index([meetingId])
+}
+
+// ===========================================
+// Activity Feed
+// ===========================================
+
+model Activity {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String?
+  contactId   String?
+  companyId   String?
+  dealId      String?
+  dataRoomId  String?
+  type        String   // email_sent, call_made, meeting_held, deal_stage_changed, linkedin_connect, data_room_viewed, etc.
+  title       String
+  description String?
+  metadata    Json?
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id])
+  contact  Contact?  @relation(fields: [contactId], references: [id])
+  company  Company?  @relation(fields: [companyId], references: [id])
+  deal     Deal?     @relation(fields: [dealId], references: [id])
+  dataRoom DataRoom? @relation(fields: [dataRoomId], references: [id])
+
+  @@index([tenantId, occurredAt])
+  @@index([contactId])
+  @@index([dealId])
+  @@index([dataRoomId])
+}
+
+// ===========================================
+// Data Rooms (Digital Sales Rooms)
+// ===========================================
+
+model DataRoom {
+  id              String         @id @default(uuid())
+  tenantId        String
+  dealId          String?
+  contactId       String?
+  name            String
+  slug            String         // URL-friendly unique identifier
+  description     String?
+  welcomeMessage  String?
+  logoUrl         String?
+  bannerUrl       String?
+  primaryColor    String?        // Hex color for branding
+  isPublic        Boolean        @default(true)
+  isPasswordProtected Boolean    @default(false)
+  password        String?        // Hashed password if protected
+  expiresAt       DateTime?      // Optional expiration date
+  status          DataRoomStatus @default(ACTIVE)
+  settings        Json?          // { allowDownloads: true, showBranding: true, etc }
+  
+  // Analytics
+  totalViews      Int            @default(0)
+  uniqueVisitors  Int            @default(0)
+  totalTimeSpent  Int            @default(0) // seconds
+  lastViewedAt    DateTime?
+  
+  createdById     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deal       Deal?              @relation(fields: [dealId], references: [id])
+  contact    Contact?           @relation(fields: [contactId], references: [id])
+  createdBy  User?              @relation(fields: [createdById], references: [id])
+  sections   DataRoomSection[]
+  contents   DataRoomContent[]
+  views      DataRoomView[]
+  activities Activity[]
+  actionItems DataRoomActionItem[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status])
+  @@index([dealId])
+}
+
+enum DataRoomStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+  EXPIRED
+}
+
+model DataRoomSection {
+  id          String   @id @default(uuid())
+  dataRoomId  String
+  name        String
+  description String?
+  order       Int      @default(0)
+  isCollapsed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dataRoom DataRoom          @relation(fields: [dataRoomId], references: [id], onDelete: Cascade)
+  contents DataRoomContent[]
+
+  @@index([dataRoomId, order])
+}
+
+model DataRoomContent {
+  id           String          @id @default(uuid())
+  dataRoomId   String
+  sectionId    String?
+  type         ContentType
+  name         String
+  description  String?
+  order        Int             @default(0)
+  
+  // For files
+  storageKey   String?
+  mimeType     String?
+  sizeBytes    Int?
+  
+  // For links/embeds
+  url          String?
+  embedCode    String?
+  thumbnailUrl String?
+  
+  // For text/rich content
+  content      String?
+  
+  // Analytics
+  viewCount    Int             @default(0)
+  downloadCount Int            @default(0)
+  avgTimeSpent Int             @default(0) // seconds
+  
+  isRequired   Boolean         @default(false) // Must view before proceeding
+  isHidden     Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  dataRoom DataRoom         @relation(fields: [dataRoomId], references: [id], onDelete: Cascade)
+  section  DataRoomSection? @relation(fields: [sectionId], references: [id])
+  views    DataRoomContentView[]
+
+  @@index([dataRoomId, order])
+}
+
+enum ContentType {
+  FILE
+  LINK
+  VIDEO
+  EMBED
+  TEXT
+  IMAGE
+  PDF
+}
+
+model DataRoomView {
+  id           String   @id @default(uuid())
+  dataRoomId   String
+  contactId    String?
+  visitorEmail String?
+  visitorName  String?
+  ipAddress    String?
+  userAgent    String?
+  referrer     String?
+  deviceType   String?  // desktop, mobile, tablet
+  timeSpent    Int      @default(0) // seconds
+  pagesViewed  Int      @default(0)
+  viewedAt     DateTime @default(now())
+
+  dataRoom DataRoom @relation(fields: [dataRoomId], references: [id], onDelete: Cascade)
+  contact  Contact? @relation(fields: [contactId], references: [id])
+  contentViews DataRoomContentView[]
+
+  @@index([dataRoomId, viewedAt])
+  @@index([contactId])
+}
+
+model DataRoomContentView {
+  id          String   @id @default(uuid())
+  viewId      String
+  contentId   String
+  timeSpent   Int      @default(0) // seconds
+  downloaded  Boolean  @default(false)
+  completed   Boolean  @default(false) // Watched full video, read full doc
+  viewedAt    DateTime @default(now())
+
+  view    DataRoomView    @relation(fields: [viewId], references: [id], onDelete: Cascade)
+  content DataRoomContent @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@index([viewId])
+  @@index([contentId])
+}
+
+model DataRoomActionItem {
+  id          String   @id @default(uuid())
+  dataRoomId  String
+  title       String
+  description String?
+  dueDate     DateTime?
+  assignedTo  String?  // Email or name of assignee
+  isCompleted Boolean  @default(false)
+  completedAt DateTime?
+  completedBy String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dataRoom DataRoom @relation(fields: [dataRoomId], references: [id], onDelete: Cascade)
+
+  @@index([dataRoomId, order])
+}
+
+// ===========================================
+// LinkedIn Accounts & Campaigns
+// ===========================================
+
+model LinkedInAccount {
+  id           String                 @id @default(uuid())
+  tenantId     String
+  userId       String
+  
+  // LinkedIn profile info
+  linkedinId   String?                // LinkedIn member ID
+  profileUrl   String
+  name         String
+  email        String?
+  avatarUrl    String?
+  headline     String?
+  
+  // Connection method
+  connectionMethod LinkedInConnectionMethod @default(COOKIE)
+  
+  // Session/credentials (encrypted in production)
+  sessionCookie String?               // li_at cookie
+  csrfToken     String?               // JSESSIONID
+  credentials   Json?                 // Encrypted: { email, password, twoFASecret, country }
+  sessionData   Json?                 // Browser context (cookies, localStorage) for session restore
+  
+  // Status
+  status        LinkedInAccountStatus @default(DISCONNECTED)
+  lastSyncAt    DateTime?
+  lastVerifiedAt DateTime?            // Last successful session verification
+  errorMessage  String?
+  errorCode     String?               // CHECKPOINT, CAPTCHA, INVALID_CREDENTIALS, SESSION_EXPIRED
+  
+  // Daily limits
+  dailyConnectionLimit  Int           @default(25)
+  dailyMessageLimit     Int           @default(50)
+  dailyViewLimit        Int           @default(100)
+  dailyConnectionsSent  Int           @default(0)
+  dailyMessagesSent     Int           @default(0)
+  dailyViewsDone        Int           @default(0)
+  limitsResetAt         DateTime?
+  
+  // Warmup settings
+  isWarmingUp   Boolean               @default(false)
+  warmupStartedAt DateTime?
+  warmupDay     Int                   @default(0)  // Current day of warmup (1-14)
+  
+  // Worker lock (prevents concurrent sessions)
+  lockedAt      DateTime?
+  lockedBy      String?               // Worker instance ID
+  
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns    LinkedInCampaign[]
+  actions      LinkedInAction[]
+  messages     LinkedInMessage[]
+
+  @@unique([tenantId, profileUrl])
+  @@index([tenantId, status])
+  @@index([userId])
+  @@index([status, lockedAt])
+}
+
+enum LinkedInConnectionMethod {
+  COOKIE
+  CREDENTIALS
+  EXTENSION
+  INFINITE_LOGIN
+}
+
+enum LinkedInAccountStatus {
+  CONNECTED
+  DISCONNECTED
+  VERIFYING
+  NEEDS_ATTENTION
+  RECONNECTING
+  RATE_LIMITED
+  SUSPENDED
+}
+
+model LinkedInCampaign {
+  id           String                 @id @default(uuid())
+  tenantId     String
+  accountId    String
+  
+  name         String
+  description  String?
+  status       LinkedInCampaignStatus @default(DRAFT)
+  
+  // Campaign settings
+  sendingSchedule Json?               // { days: [1,2,3,4,5], startHour: 9, endHour: 17, timezone: "America/New_York" }
+  dailyLimit      Int                 @default(20)
+  
+  // Sequence of actions
+  steps        LinkedInCampaignStep[]
+  
+  // Stats
+  totalLeads   Int                    @default(0)
+  sentCount    Int                    @default(0)
+  acceptedCount Int                   @default(0)
+  repliedCount  Int                   @default(0)
+  
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account      LinkedInAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  leads        LinkedInCampaignLead[]
+
+  @@index([tenantId, status])
+  @@index([accountId])
+}
+
+enum LinkedInCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+model LinkedInCampaignStep {
+  id           String                 @id @default(uuid())
+  campaignId   String
+  
+  stepNumber   Int
+  actionType   LinkedInActionType
+  
+  // Delay before this step
+  delayDays    Int                    @default(0)
+  delayHours   Int                    @default(0)
+  
+  // Content for this step
+  connectionNote String?              // For connection requests
+  messageSubject String?              // For InMails
+  messageBody    String?              // For messages/InMails
+  
+  // Personalization variables
+  variables    Json?                  // Available: {{firstName}}, {{company}}, {{title}}
+  
+  isEnabled    Boolean                @default(true)
+  
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  campaign     LinkedInCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, stepNumber])
+  @@index([campaignId])
+}
+
+model LinkedInCampaignLead {
+  id           String                 @id @default(uuid())
+  campaignId   String
+  contactId    String?
+  
+  // LinkedIn profile data
+  linkedinUrl  String
+  linkedinId   String?                // LinkedIn member URN if discovered
+  name         String
+  headline     String?
+  company      String?
+  avatarUrl    String?
+  
+  // Status
+  status       LinkedInLeadStatus     @default(PENDING)
+  currentStep  Int                    @default(0)
+  
+  // Connection status (discovered via profile check)
+  connectionStatus LinkedInConnectionStatus @default(UNKNOWN)
+  isConnected  Boolean                @default(false)
+  connectedAt  DateTime?
+  connectionRequestedAt DateTime?     // When we sent the request
+  acceptanceCheckCount Int            @default(0)  // How many times we've checked
+  
+  // Conversation tracking (for follow-up logic)
+  threadId     String?                // LinkedIn conversation ID
+  lastOutboundAt DateTime?            // Last message we sent
+  lastInboundAt  DateTime?            // Last reply we received
+  
+  // Profile check tracking
+  profileCheckedAt DateTime?          // Last time we viewed their profile
+  
+  // Tracking
+  lastActionAt DateTime?
+  nextActionAt DateTime?
+  errorMessage String?
+  errorCount   Int                    @default(0)
+  
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  campaign     LinkedInCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact      Contact?               @relation(fields: [contactId], references: [id])
+  actions      LinkedInAction[]       // Actions for this lead
+  messages     LinkedInMessage[]      // Messages for this lead
+
+  @@unique([campaignId, linkedinUrl])
+  @@index([campaignId, status])
+  @@index([campaignId, nextActionAt])
+  @@index([status, nextActionAt])
+}
+
+enum LinkedInLeadStatus {
+  PENDING           // Not started
+  CHECKING_PROFILE  // Checking connection status
+  CONNECTION_SENT   // Connection request sent, waiting for accept
+  AWAITING_ACCEPT   // Actively checking for acceptance
+  CONNECTED         // Connected, ready for messaging
+  MESSAGED          // First message sent
+  AWAITING_REPLY    // Waiting for reply before follow-up
+  REPLIED           // Got a reply - success!
+  COMPLETED         // Sequence completed
+  FAILED            // Failed after max retries
+  SKIPPED           // Manually skipped or already connected
+}
+
+enum LinkedInConnectionStatus {
+  UNKNOWN           // Haven't checked yet
+  NOT_CONNECTED     // Not connected
+  PENDING_SENT      // We sent a request
+  PENDING_RECEIVED  // They sent us a request
+  CONNECTED         // Already connected
+  BLOCKED           // Can't connect (blocked or restricted)
+}
+
+model LinkedInMessage {
+  id           String                 @id @default(uuid())
+  tenantId     String
+  accountId    String
+  contactId    String?
+  campaignLeadId String?              // Link to campaign lead for tracking
+  
+  // Thread info
+  threadId     String?                // LinkedIn conversation ID
+  messageId    String?                // LinkedIn message ID (for dedup)
+  
+  // Message content
+  body         String
+  isOutbound   Boolean                @default(false)
+  
+  // Sender/Receiver
+  senderUrl    String?
+  senderName   String?
+  senderLinkedinId String?
+  receiverUrl  String?
+  receiverName String?
+  receiverLinkedinId String?
+  
+  sentAt       DateTime
+  readAt       DateTime?
+  syncedAt     DateTime               @default(now())  // When we synced this message
+  
+  createdAt    DateTime               @default(now())
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account      LinkedInAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact      Contact?               @relation(fields: [contactId], references: [id])
+  campaignLead LinkedInCampaignLead?  @relation(fields: [campaignLeadId], references: [id])
+
+  @@unique([accountId, threadId, messageId])  // Prevent duplicate messages
+  @@index([tenantId, accountId])
+  @@index([threadId])
+  @@index([contactId])
+  @@index([campaignLeadId])
+  @@index([accountId, sentAt])
+}
+
+// ===========================================
+// LinkedIn Tracking
+// ===========================================
+
+model LinkedInAction {
+  id           String           @id @default(uuid())
+  tenantId     String
+  userId       String
+  accountId    String?          // LinkedIn account used
+  contactId    String?
+  campaignLeadId String?        // Link to campaign lead (for campaign actions)
+  enrollmentId String?          // If from a sequence
+  actionType   LinkedInActionType
+  status       LinkedInActionStatus @default(PENDING)
+  priority     Int              @default(0)  // Higher = more urgent
+  
+  // LinkedIn profile data
+  linkedinUrl  String?
+  profileData  Json?            // Cached profile info
+  
+  // Message content (for messages/InMails)
+  messageSubject String?
+  messageBody    String?
+  
+  // Connection request note
+  connectionNote String?
+  
+  // Scheduling
+  scheduledAt  DateTime?
+  executedAt   DateTime?
+  
+  // Worker locking
+  lockedAt     DateTime?
+  lockedBy     String?          // Worker instance ID
+  
+  // Retry logic
+  attemptCount Int              @default(0)
+  maxAttempts  Int              @default(3)
+  nextRetryAt  DateTime?
+  
+  // Result
+  errorMessage String?
+  errorCode    String?          // RATE_LIMITED, SESSION_EXPIRED, PROFILE_NOT_FOUND, etc.
+  resultData   Json?            // Any data returned (e.g., connection status discovered)
+  
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id])
+  account      LinkedInAccount?    @relation(fields: [accountId], references: [id])
+  contact      Contact?            @relation(fields: [contactId], references: [id])
+  campaignLead LinkedInCampaignLead? @relation(fields: [campaignLeadId], references: [id])
+  enrollment   SequenceEnrollment? @relation(fields: [enrollmentId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([userId])
+  @@index([accountId])
+  @@index([contactId])
+  @@index([campaignLeadId])
+  @@index([status, scheduledAt])
+  @@index([accountId, status, scheduledAt])
+}
+
+enum LinkedInActionType {
+  PROFILE_VIEW           // Visit profile and check connection status
+  CONNECTION_REQUEST     // Send connection request
+  CHECK_ACCEPTANCE       // Check if connection was accepted
+  MESSAGE               // Send message (requires connection)
+  INMAIL                // Send InMail (doesn't require connection)
+  FOLLOW                // Follow profile
+  LIKE                  // Like a post
+  COMMENT               // Comment on a post
+  SYNC_MESSAGES         // Sync inbox for this account
+}
+
+enum LinkedInActionStatus {
+  PENDING       // Ready to execute
+  IN_PROGRESS   // Worker is executing
+  COMPLETED     // Successfully executed
+  FAILED        // Failed (may retry)
+  SKIPPED       // Skipped (e.g., already connected)
+  CANCELLED     // Cancelled by user
+}
+
+// ===========================================
+// Notifications
+// ===========================================
+
+model Notification {
+  id          String           @id @default(uuid())
+  tenantId    String
+  userId      String
+  type        NotificationType
+  title       String
+  body        String?
+  
+  // Related entity
+  resourceType String?         // contact, deal, meeting, task, data_room, etc.
+  resourceId   String?
+  
+  // Metadata
+  metadata    Json?
+  actionUrl   String?
+  
+  // Status
+  isRead      Boolean          @default(false)
+  readAt      DateTime?
+  isArchived  Boolean          @default(false)
+  
+  createdAt   DateTime         @default(now())
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([tenantId, userId, isRead])
+  @@index([userId, createdAt])
+}
+
+enum NotificationType {
+  MEETING_SCHEDULED
+  MEETING_STARTED
+  MEETING_COMPLETED
+  MEETING_INSIGHTS_READY
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  DEAL_STAGE_CHANGED
+  DEAL_WON
+  DEAL_LOST
+  EMAIL_REPLIED
+  EMAIL_BOUNCED
+  SEQUENCE_COMPLETED
+  DATA_ROOM_VIEWED
+  DATA_ROOM_CONTENT_DOWNLOADED
+  CONTACT_ENRICHED
+  LINKEDIN_ACTION_COMPLETED
+  TEAM_INVITE_ACCEPTED
+  MENTION
+  SYSTEM
+}
+
+model NotificationPreference {
+  id          String  @id @default(uuid())
+  userId      String
+  
+  // Email preferences
+  emailEnabled         Boolean @default(true)
+  emailMeetingReminders Boolean @default(true)
+  emailTaskReminders    Boolean @default(true)
+  emailDealUpdates      Boolean @default(true)
+  emailDataRoomViews    Boolean @default(true)
+  emailWeeklyDigest     Boolean @default(true)
+  
+  // In-app preferences
+  inAppEnabled          Boolean @default(true)
+  inAppMeetingUpdates   Boolean @default(true)
+  inAppTaskUpdates      Boolean @default(true)
+  inAppDealUpdates      Boolean @default(true)
+  inAppDataRoomViews    Boolean @default(true)
+  
+  // Quiet hours
+  quietHoursEnabled     Boolean @default(false)
+  quietHoursStart       String? // "22:00"
+  quietHoursEnd         String? // "08:00"
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId])
+}
+
+// ===========================================
+// Team Invitations
+// ===========================================
+
+model TeamInvitation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  email       String
+  role        String   @default("MEMBER") // ADMIN, MANAGER, MEMBER
+  invitedById String
+  
+  token       String   @unique
+  expiresAt   DateTime
+  
+  status      InvitationStatus @default(PENDING)
+  acceptedAt  DateTime?
+  acceptedById String?
+  
+  createdAt   DateTime @default(now())
+  
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy User   @relation("InvitationsSent", fields: [invitedById], references: [id])
+  acceptedBy User? @relation("InvitationsAccepted", fields: [acceptedById], references: [id])
+  
+  @@index([tenantId, status])
+  @@index([email])
+  @@index([token])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+// ===========================================
+// Import/Export Jobs
+// ===========================================
+
+model ImportJob {
+  id           String       @id @default(uuid())
+  tenantId     String
+  userId       String
+  type         ImportType
+  status       ImportStatus @default(PENDING)
+  
+  // File info
+  fileName     String
+  fileSize     Int?
+  storageKey   String?
+  
+  // Mapping configuration
+  fieldMapping Json?        // { "first_name": "firstName", "email": "email" }
+  options      Json?        // { "skipDuplicates": true, "updateExisting": false }
+  
+  // Results
+  totalRows    Int          @default(0)
+  processedRows Int         @default(0)
+  successCount Int          @default(0)
+  errorCount   Int          @default(0)
+  errors       Json?        // Array of { row: number, error: string }
+  
+  startedAt    DateTime?
+  completedAt  DateTime?
+  
+  createdAt    DateTime     @default(now())
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+  
+  @@index([tenantId, status])
+}
+
+enum ImportType {
+  CONTACTS
+  COMPANIES
+  DEALS
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model ExportJob {
+  id           String       @id @default(uuid())
+  tenantId     String
+  userId       String
+  type         ExportType
+  status       ExportStatus @default(PENDING)
+  
+  // Filter criteria
+  filters      Json?        // Applied filters
+  columns      Json?        // Selected columns
+  
+  // File info
+  fileName     String?
+  storageKey   String?
+  downloadUrl  String?
+  expiresAt    DateTime?
+  
+  // Results
+  totalRows    Int          @default(0)
+  
+  startedAt    DateTime?
+  completedAt  DateTime?
+  
+  createdAt    DateTime     @default(now())
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+  
+  @@index([tenantId, status])
+}
+
+enum ExportType {
+  CONTACTS
+  COMPANIES
+  DEALS
+  ACTIVITIES
+  MEETINGS
+  TASKS
+}
+
+enum ExportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ===========================================
+// AI Generated Content
+// ===========================================
+
+model GeneratedContent {
+  id            String              @id @default(uuid())
+  tenantId      String
+  userId        String
+  type          GeneratedContentType
+  
+  // Source context
+  sourceType    String?             // meeting, contact, deal
+  sourceId      String?
+  
+  // Generated content
+  title         String?
+  content       String
+  metadata      Json?               // Model used, tokens, etc.
+  
+  // Usage tracking
+  isUsed        Boolean             @default(false)
+  usedAt        DateTime?
+  usedInType    String?             // email, task, note
+  usedInId      String?
+  
+  // Feedback
+  rating        Int?                // 1-5
+  feedback      String?
+  
+  createdAt     DateTime            @default(now())
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+  
+  @@index([tenantId, type])
+  @@index([sourceType, sourceId])
+}
+
+enum GeneratedContentType {
+  FOLLOW_UP_EMAIL
+  MEETING_SUMMARY
+  PROPOSAL_DRAFT
+  ACTION_ITEM_LIST
+  OBJECTION_RESPONSE
+  COACHING_FEEDBACK
+  CALL_SCRIPT
+  LINKEDIN_MESSAGE
+}
+
+// ===========================================
+// Notes & Comments
+// ===========================================
+
+model Note {
+  id          String   @id @default(uuid())
+  tenantId    String
+  authorId    String
+  
+  // Related entity (polymorphic)
+  entityType  String   // contact, company, deal, meeting
+  entityId    String
+  
+  // Content
+  content     String
+  isPinned    Boolean  @default(false)
+  
+  // Mentions (extracted from content)
+  mentions    Json?    // Array of { userId: string, offset: number }
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  author User   @relation(fields: [authorId], references: [id])
+  
+  @@index([tenantId, entityType, entityId])
+  @@index([authorId])
+}
+
+// ===========================================
+// Saved Filters & Views
+// ===========================================
+
+model SavedView {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String
+  
+  name        String
+  entityType  String   // contacts, companies, deals, activities
+  filters     Json     // Filter criteria
+  columns     Json?    // Column visibility/order
+  sortBy      String?
+  sortOrder   String?  // asc, desc
+  
+  isDefault   Boolean  @default(false)
+  isShared    Boolean  @default(false) // Visible to team
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+  
+  @@index([tenantId, entityType])
+  @@index([userId])
+}
+
+// ===========================================
+// Workflow Automations
+// ===========================================
+
+model WorkflowAutomation {
+  id          String                @id @default(uuid())
+  tenantId    String
+  createdById String
+  
+  name        String
+  description String?
+  
+  // Trigger configuration
+  triggerType WorkflowTriggerType
+  triggerConfig Json?               // Additional trigger conditions
+  
+  // Action configuration
+  actions     Json                  // Array of action definitions
+  
+  // State
+  isActive    Boolean               @default(true)
+  runCount    Int                   @default(0)
+  lastRunAt   DateTime?
+  lastError   String?
+  
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User   @relation(fields: [createdById], references: [id])
+  runs      WorkflowRun[]
+  
+  @@index([tenantId, isActive])
+  @@index([triggerType])
+}
+
+model WorkflowRun {
+  id            String         @id @default(uuid())
+  automationId  String
+  tenantId      String
+  
+  // Trigger context
+  triggerData   Json?          // Data that triggered the workflow
+  entityType    String?        // deal, contact, meeting, etc.
+  entityId      String?
+  
+  // Execution status
+  status        WorkflowRunStatus @default(PENDING)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  
+  // Results
+  actionsExecuted Int          @default(0)
+  actionResults   Json?        // Results of each action
+  error           String?
+  
+  createdAt     DateTime       @default(now())
+  
+  automation WorkflowAutomation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  
+  @@index([automationId])
+  @@index([tenantId, status])
+  @@index([entityType, entityId])
+}
+
+enum WorkflowTriggerType {
+  DEAL_STAGE_CHANGED
+  DEAL_CREATED
+  DEAL_WON
+  DEAL_LOST
+  CONTACT_CREATED
+  CONTACT_ENRICHED
+  MEETING_COMPLETED
+  MEETING_SCHEDULED
+  TASK_COMPLETED
+  TASK_OVERDUE
+  EMAIL_RECEIVED
+  EMAIL_OPENED
+  EMAIL_REPLIED
+  LINKEDIN_REPLIED
+  DATA_ROOM_VIEWED
+  SEQUENCE_COMPLETED
+  MANUAL
+  SCHEDULED
+}
+
+enum WorkflowRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ===========================================
+// Phase 7: Templates Library
+// ===========================================
+
+model Template {
+  id          String         @id @default(uuid())
+  tenantId    String
+  createdById String
+  
+  name        String
+  description String?
+  type        TemplateType
+  category    String?        // User-defined category
+  
+  // Content
+  subject     String?        // For email templates
+  body        String
+  variables   Json?          // Array of { name, defaultValue, required }
+  
+  // Settings
+  isShared    Boolean        @default(false)  // Visible to team
+  isDefault   Boolean        @default(false)  // Default for this type
+  
+  // Analytics
+  useCount    Int            @default(0)
+  lastUsedAt  DateTime?
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User   @relation(fields: [createdById], references: [id])
+  
+  @@index([tenantId, type])
+  @@index([tenantId, category])
+}
+
+enum TemplateType {
+  EMAIL_COLD
+  EMAIL_FOLLOW_UP
+  EMAIL_BREAK_UP
+  EMAIL_NURTURE
+  LINKEDIN_CONNECTION
+  LINKEDIN_INMAIL
+  LINKEDIN_REPLY
+  CALL_SCRIPT
+  SMS
+}
+
+// ===========================================
+// Phase 7: Lead Scoring
+// ===========================================
+
+model LeadScore {
+  id          String   @id @default(uuid())
+  tenantId    String
+  contactId   String   @unique
+  
+  // Scores
+  totalScore      Int      @default(0)
+  engagementScore Int      @default(0)  // Email opens, clicks, replies
+  behaviorScore   Int      @default(0)  // Meeting attendance, data room views
+  fitScore        Int      @default(0)  // Based on enrichment data
+  
+  // Score breakdown
+  scoreHistory    Json?    // Array of { date, score, change, reason }
+  lastActivity    DateTime?
+  
+  // Calculated grade
+  grade           String?  // A, B, C, D based on score thresholds
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  
+  @@index([tenantId, totalScore])
+  @@index([tenantId, grade])
+}
+
+model LeadScoringRule {
+  id          String   @id @default(uuid())
+  tenantId    String
+  
+  name        String
+  description String?
+  
+  // Rule definition
+  eventType   String   // EMAIL_OPENED, EMAIL_CLICKED, EMAIL_REPLIED, MEETING_ATTENDED, etc.
+  scoreChange Int      // Points to add (positive) or subtract (negative)
+  
+  // Conditions (optional)
+  conditions  Json?    // { field, operator, value } for additional filtering
+  
+  // Decay settings
+  decayDays   Int?     // Days after which points decay
+  decayAmount Int?     // Points to subtract on decay
+  
+  isActive    Boolean  @default(true)
+  priority    Int      @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@index([tenantId, isActive])
+}
+
+model LeadScoreEvent {
+  id          String   @id @default(uuid())
+  tenantId    String
+  contactId   String
+  ruleId      String?
+  
+  eventType   String
+  scoreChange Int
+  reason      String
+  metadata    Json?    // Additional event data
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([tenantId, contactId])
+  @@index([createdAt])
+}
+
+// ===========================================
+// Phase 7: Custom Fields
+// ===========================================
+
+model CustomField {
+  id          String         @id @default(uuid())
+  tenantId    String
+  
+  name        String
+  label       String
+  description String?
+  
+  entityType  CustomFieldEntity
+  fieldType   CustomFieldType
+  
+  // Field configuration
+  isRequired  Boolean        @default(false)
+  isUnique    Boolean        @default(false)
+  options     Json?          // For dropdown/multi-select: [{ value, label, color }]
+  defaultValue String?
+  validation  Json?          // { min, max, pattern, etc. }
+  
+  // Display settings
+  order       Int            @default(0)
+  isVisible   Boolean        @default(true)
+  showInList  Boolean        @default(true)
+  showInForm  Boolean        @default(true)
+  
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  values CustomFieldValue[]
+  
+  @@unique([tenantId, entityType, name])
+  @@index([tenantId, entityType])
+}
+
+model CustomFieldValue {
+  id            String   @id @default(uuid())
+  tenantId      String
+  customFieldId String
+  entityId      String   // ID of the contact, company, or deal
+  
+  // Value storage (use appropriate field based on type)
+  textValue     String?
+  numberValue   Float?
+  dateValue     DateTime?
+  boolValue     Boolean?
+  jsonValue     Json?    // For multi-select and complex values
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  
+  @@unique([customFieldId, entityId])
+  @@index([tenantId, entityId])
+}
+
+enum CustomFieldEntity {
+  CONTACT
+  COMPANY
+  DEAL
+}
+
+enum CustomFieldType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  CURRENCY
+  PERCENT
+  DATE
+  DATETIME
+  CHECKBOX
+  DROPDOWN
+  MULTI_SELECT
+  URL
+  EMAIL
+  PHONE
+}

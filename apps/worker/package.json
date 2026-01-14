@@ -1,0 +1,25 @@
+{
+  "name": "@salessearchers/worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@salessearchers/db": "workspace:*",
+    "@salessearchers/shared": "workspace:*",
+    "@salessearchers/integrations": "workspace:*",
+    "@temporalio/client": "^1.11.3",
+    "@temporalio/worker": "^1.11.3",
+    "@temporalio/workflow": "^1.11.3",
+    "@temporalio/activity": "^1.11.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.3.3"
+  }
+}
