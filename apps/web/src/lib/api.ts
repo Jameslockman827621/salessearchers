@@ -1406,7 +1406,7 @@ class ApiClient {
       email: string | null;
       avatarUrl: string | null;
       headline: string | null;
-      status: 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING' | 'RATE_LIMITED' | 'SUSPENDED';
+      status: 'CONNECTED' | 'DISCONNECTED' | 'VERIFYING' | 'NEEDS_ATTENTION' | 'RECONNECTING' | 'RATE_LIMITED' | 'SUSPENDED';
       connectionMethod: 'COOKIE' | 'CREDENTIALS' | 'EXTENSION';
       dailyConnectionLimit: number;
       dailyMessageLimit: number;
